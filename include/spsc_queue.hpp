@@ -1,7 +1,6 @@
 #pragma once
 
 #include <memory>
-
 template<typename T>
 class SPSCQueue {
 public:
@@ -16,5 +15,4 @@ public:
 private:
     size_t reader_ = 0;
     size_t writer_ = 0;
-
 };

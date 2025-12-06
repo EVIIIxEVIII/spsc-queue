@@ -7,7 +7,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(benchmark REQUIRED)
 
-add_library(spscqueue src/spsc_queue.cpp)
+add_library(spscqueue src/spsc_buffer.cpp)
 target_include_directories(spscqueue PUBLIC include)
 
 add_executable(spsc_bench

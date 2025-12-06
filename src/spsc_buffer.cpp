@@ -1,17 +1,21 @@
 #include "spsc_buffer.hpp"
+#include <atomic>
 #include <cstring>
 
-size_t SPSCBuffer::available() const {
-    if (reader_ > writer_) {
-        return (bufferSize_ - reader_) + writer_;
+size_t SPSCBuffer::available(size_t writer, size_t reader) const {
+    if (reader > writer) {
+        return (bufferSize_ - reader) + writer;
     } else {
-        return writer_ - reader_;
+        return writer - reader;
     }
 }
 
 ReadView SPSCBuffer::read(size_t n) {
-    size_t avail = available();
-    if (reader_ == writer_) {
+    size_t reader = reader_.load(std::memory_order_acquire);
+    size_t writer = writer_.load(std::memory_order_acquire);
+
+    size_t avail = available(writer, reader);
+    if (reader == writer) {
         return { {}, {} };
     }
 
@@ -19,50 +23,58 @@ ReadView SPSCBuffer::read(size_t n) {
         n = avail;
     }
 
-    size_t spaceToEnd = bufferSize_ - reader_;
+    size_t spaceToEnd = bufferSize_ - reader;
 
     ReadView readView;
     if (n <= spaceToEnd) {
         readView = ReadView{
-            std::span<const std::byte>(buffer_.get() + reader_, n),
+            std::span<const std::byte>(buffer_.get() + reader, n),
             {}
         };
 
-        reader_ += n;
-        if (reader_ == bufferSize_) {
-            reader_ = 0;
+        size_t newReader = reader + n;
+        if (newReader == bufferSize_) {
+            newReader = 0;
         }
+
+        reader_.store(newReader, std::memory_order_release);
     } else {
         size_t firstLen = spaceToEnd;
         size_t secondLen = n - firstLen;
 
         readView = ReadView{
-            std::span<const std::byte>(buffer_.get() + reader_, firstLen),
+            std::span<const std::byte>(buffer_.get() + reader, firstLen),
             std::span<const std::byte>(buffer_.get(), secondLen),
         };
 
-        reader_ = secondLen;
+        reader_.store(secondLen, std::memory_order_release);
     }
 
     return readView;
 }
 
-bool SPSCBuffer::write(std::span<const std::byte> data) {
-    size_t freeSpace = bufferSize_ - 1 - available();
+bool SPSCBuffer::try_write(std::span<const std::byte> data) {
+    size_t writer = writer_.load(std::memory_order_acquire);
+    size_t reader = reader_.load(std::memory_order_acquire);
+
+    size_t freeSpace = bufferSize_ - 1 - available(writer, reader);
     if (freeSpace < data.size_bytes()) {
         return false;
     }
 
-    if (writer_ + data.size_bytes() < bufferSize_) {
-        std::memcpy(buffer_.get() + writer_, data.data(), data.size_bytes());
-        writer_ += data.size_bytes();
-    } else {
-        size_t firstPart = bufferSize_ - writer_;
+    if (writer + data.size_bytes() < bufferSize_) {
+        std::memcpy(buffer_.get() + writer, data.data(), data.size_bytes());
 
-        std::memcpy(buffer_.get() + writer_, data.data(), bufferSize_ - writer_);
+        size_t newWriter = writer + data.size_bytes();
+        writer_.store(newWriter, std::memory_order_release);
+    } else {
+        size_t firstPart = bufferSize_ - writer;
+
+        std::memcpy(buffer_.get() + writer, data.data(), bufferSize_ - writer);
         std::memcpy(buffer_.get(), data.data() + firstPart, data.size_bytes() - firstPart);
 
-        writer_ = data.size_bytes() - firstPart;
+        size_t newWriter = data.size_bytes() - firstPart;
+        writer_.store(newWriter, std::memory_order_release);
     }
 
     return true;
