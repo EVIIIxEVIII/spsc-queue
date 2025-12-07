@@ -18,7 +18,7 @@ public:
     SPSCBuffer& operator=(const SPSCBuffer& q) = delete;
     SPSCBuffer& operator=(SPSCBuffer&& q) = delete;
 
-    ReadView read(size_t n);
+    void read(std::span<std::byte> dst, size_t n);
     bool try_write(std::span<const std::byte> data);
     size_t available(size_t writer, size_t reader) const;
 

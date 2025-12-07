@@ -1,6 +1,7 @@
 #include "spsc_buffer.hpp"
 #include <atomic>
 #include <cstring>
+#include <algorithm>
 
 size_t SPSCBuffer::available(size_t writer, size_t reader) const {
     if (reader > writer) {
@@ -10,28 +11,20 @@ size_t SPSCBuffer::available(size_t writer, size_t reader) const {
     }
 }
 
-ReadView SPSCBuffer::read(size_t n) {
+void SPSCBuffer::read(std::span<std::byte> dst, size_t n) {
     size_t reader = reader_.load(std::memory_order_acquire);
     size_t writer = writer_.load(std::memory_order_acquire);
 
     size_t avail = available(writer, reader);
-    if (reader == writer) {
-        return { {}, {} };
+    if (!avail) {
+        return;
     }
 
-    if (n > avail) {
-        n = avail;
-    }
-
+    n = std::min({ avail, n, dst.size_bytes() });
     size_t spaceToEnd = bufferSize_ - reader;
 
-    ReadView readView;
     if (n <= spaceToEnd) {
-        readView = ReadView{
-            std::span<const std::byte>(buffer_.get() + reader, n),
-            {}
-        };
-
+        std::memcpy(dst.data(), buffer_.get() + reader, n);
         size_t newReader = reader + n;
         if (newReader == bufferSize_) {
             newReader = 0;
@@ -42,15 +35,11 @@ ReadView SPSCBuffer::read(size_t n) {
         size_t firstLen = spaceToEnd;
         size_t secondLen = n - firstLen;
 
-        readView = ReadView{
-            std::span<const std::byte>(buffer_.get() + reader, firstLen),
-            std::span<const std::byte>(buffer_.get(), secondLen),
-        };
+        std::memcpy(dst.data(), buffer_.get() + reader, firstLen);
+        std::memcpy(dst.data() + firstLen, buffer_.get(), secondLen);
 
         reader_.store(secondLen, std::memory_order_release);
     }
-
-    return readView;
 }
 
 bool SPSCBuffer::try_write(std::span<const std::byte> data) {

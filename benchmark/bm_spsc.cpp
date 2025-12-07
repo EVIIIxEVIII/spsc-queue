@@ -7,6 +7,9 @@ static void BM_BufferWriteRead(benchmark::State& state) {
     std::vector<std::byte> data(payload, std::byte(10));
     benchmark::DoNotOptimize(data);
 
+    std::vector<std::byte> dst(payload, std::byte(10));
+    benchmark::DoNotOptimize(dst);
+
     SPSCBuffer q;
     benchmark::DoNotOptimize(q);
 
@@ -14,7 +17,7 @@ static void BM_BufferWriteRead(benchmark::State& state) {
         q.try_write(std::span<const std::byte>(data.data(), data.size()));
         benchmark::ClobberMemory();
 
-        auto view = q.read(data.size());
+        q.read(dst, data.size());
         benchmark::ClobberMemory();
     }
 
