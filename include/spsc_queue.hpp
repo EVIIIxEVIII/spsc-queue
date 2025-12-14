@@ -121,5 +121,3 @@ bool SPSCQueue<T>::try_pop(T& dst) {
     reader_.store(reader + 1, std::memory_order_release);
     return true;
 }
-
-
